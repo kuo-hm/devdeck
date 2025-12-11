@@ -1,0 +1,103 @@
+package process
+
+import (
+	"bufio"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/kuo-hm/devdeck/config"
+)
+
+// Process represents a running task with its configuration and state.
+type Process struct {
+	Config    config.Task
+	Cmd       *exec.Cmd
+	Status    string
+	Output    chan string
+	Err       error
+	LogBuffer string
+}
+
+// NewProcess creates a new Process instance from a task configuration.
+func NewProcess(cfg config.Task) *Process {
+	return &Process{
+		Config: cfg,
+		Status: "Stopped",
+		Output: make(chan string, 1000),
+	}
+}
+
+// Start executes the process command and begins streaming output.
+func (p *Process) Start() error {
+	parts := strings.Fields(p.Config.Command)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	c := exec.Command(parts[0], parts[1:]...)
+	if p.Config.Directory != "" {
+		c.Dir = p.Config.Directory
+	}
+	c.Env = os.Environ()
+	c.Env = append(c.Env, p.Config.Env...)
+
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		p.Status = "Error"
+		p.Err = err
+		return err
+	}
+
+	stderr, err := c.StderrPipe()
+	if err != nil {
+		p.Status = "Error"
+		p.Err = err
+		return err
+	}
+
+	if err := c.Start(); err != nil {
+		p.Status = "Error"
+		p.Err = err
+		return err
+	}
+
+	p.Cmd = c
+	p.Status = "Running"
+
+	consume := func(r *bufio.Scanner) {
+		for r.Scan() {
+			p.Output <- r.Text()
+		}
+	}
+
+	go consume(bufio.NewScanner(stdout))
+	go consume(bufio.NewScanner(stderr))
+
+	go func() {
+		if err := c.Wait(); err != nil {
+			p.Status = "Error"
+			p.Err = err
+		} else {
+			p.Status = "Stopped"
+		}
+	}()
+
+	return nil
+}
+
+// Stop terminates the running process.
+func (p *Process) Stop() error {
+	if p.Cmd != nil && p.Cmd.Process != nil {
+		return p.Cmd.Process.Kill()
+	}
+	return nil
+}
+
+// Restart stops and then starts the process.
+func (p *Process) Restart() error {
+	if p.Status == "Running" {
+		_ = p.Stop()
+	}
+	return p.Start()
+}

@@ -1,0 +1,11 @@
+tasks:
+  - name: "Backend API"
+    command: "node index.js"
+    directory: "./backend1"
+    
+  - name: "Backend 2"
+    command: "node index.js"
+    directory: "./backend2"
+    env:
+      - "PORT=3002"
+      - "NODE_ENV=development"

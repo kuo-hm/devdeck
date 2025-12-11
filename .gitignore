@@ -1,0 +1,17 @@
+# Binaries
+devdeck.exe
+devdeck
+
+# Dependencies
+node_modules/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Misc
+tmp/
+.DS_Store

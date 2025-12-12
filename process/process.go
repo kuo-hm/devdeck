@@ -2,6 +2,7 @@ package process
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,6 +18,7 @@ type Process struct {
 	Output    chan string
 	Err       error
 	LogBuffer string
+	Stdin     io.WriteCloser
 }
 
 // NewProcess creates a new Process instance from a task configuration.
@@ -30,6 +32,7 @@ func NewProcess(cfg config.Task) *Process {
 
 // Start executes the process command and begins streaming output.
 func (p *Process) Start() error {
+	p.Err = nil
 	parts := strings.Fields(p.Config.Command)
 	if len(parts) == 0 {
 		return nil
@@ -41,6 +44,14 @@ func (p *Process) Start() error {
 	}
 	c.Env = os.Environ()
 	c.Env = append(c.Env, p.Config.Env...)
+
+	stdin, err := c.StdinPipe()
+	if err != nil {
+		p.Status = "Error"
+		p.Err = err
+		return err
+	}
+	p.Stdin = stdin
 
 	stdout, err := c.StdoutPipe()
 	if err != nil {
@@ -100,4 +111,13 @@ func (p *Process) Restart() error {
 		_ = p.Stop()
 	}
 	return p.Start()
+}
+
+// SendInput writes the input string to the process stdin.
+func (p *Process) SendInput(input string) error {
+	if p.Status != "Running" || p.Stdin == nil {
+		return nil
+	}
+	_, err := io.WriteString(p.Stdin, input+"\n")
+	return err
 }

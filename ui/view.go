@@ -65,10 +65,26 @@ func (m Model) View() string {
 		secondaryBorderColor = lipgloss.Color("205")
 	}
 
+	// Determine list width (e.g., 30% of screen, min 30)
+	listWidth := m.viewport.Width / 2 // Viewport is half width? No, viewport width is calculated as msg.Width / 2 in Update.
+	// Wait, m.viewport.Width is already half the screen width roughly?
+	// In Update: m.viewport = viewport.New(msg.Width/2, ...)
+	// So m.viewport.Width is 50%.
+
+	// Let's use a fixed 30% of total width for the List?
+	// We don't have msg.Width here in View(), we rely on m.viewport.Width which is half.
+	// Actually, let's just make it wider for now, e.g. 45.
+	// Or better, let's use a dynamic size if we can infer it.
+	// We can't easily infer total width from just m.viewport.Width unless we assume it's exactly 50%.
+
+	// Let's just set it to 40 for now, simpler and covers most cases.
+	listWidth = 40
+
 	// Render the list
 	taskList := lipgloss.NewStyle().
-		Width(30).
-		Height(m.viewport.Height+2). // +2 for border overhead
+		MarginTop(5).
+		Width(listWidth).
+		Height(m.viewport.Height-2). // +2 for border overhead
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(listBorderColor).
 		Padding(1, 2).
@@ -77,11 +93,19 @@ func (m Model) View() string {
 	// Render the logs
 	var logPane string
 
+	// Width for logs needs to be remaining space?
+	// Currently viewport is set to half width.
+	// We should probably rely on the layout engine (JoinHorizontal) or update Viewport width in Update.
+	// For now, increasing list width might push logs?
+	// View() just renders strings. JoinHorizontal joins them.
+	// If List is 40 and Log is 50% of screen... on a small screen (80 cols), 40 + 40 = 80. Tight.
+	// On 100 cols: 40 + 50 = 90. Fine.
+
 	if m.pinnedIndex >= 0 {
 		// Split View
 		pinnedView := lipgloss.NewStyle().
 			Width(m.secondaryViewport.Width).
-			Height(m.secondaryViewport.Height+2). // +2 for border
+			Height(m.secondaryViewport.Height-2). // +2 for border
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(secondaryBorderColor).
 			Padding(0, 1).
@@ -89,7 +113,7 @@ func (m Model) View() string {
 
 		currentView := lipgloss.NewStyle().
 			Width(m.viewport.Width).
-			Height(m.viewport.Height+2). // +2 for border
+			Height(m.viewport.Height-2). // +2 for border
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(logBorderColor).
 			Padding(0, 1).
@@ -100,7 +124,7 @@ func (m Model) View() string {
 		// Adjust task list height to match total height
 		totalHeight := m.secondaryViewport.Height + m.viewport.Height + 4 // +4 for two borders
 		taskList = lipgloss.NewStyle().
-			Width(30).
+			Width(listWidth).
 			Height(totalHeight).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(listBorderColor).
@@ -110,13 +134,34 @@ func (m Model) View() string {
 	} else {
 		// Single View
 		logPane = lipgloss.NewStyle().
+			MarginTop(5).
 			Width(m.viewport.Width).
-			Height(m.viewport.Height+2). // +2 for border
+			Height(m.viewport.Height-2). // +2 for border
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(logBorderColor).
 			Padding(0, 1).
 			Render(m.viewport.View())
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, taskList, logPane)
+	// Main view is list + logs
+	mainView := lipgloss.JoinHorizontal(lipgloss.Top, taskList, logPane)
+
+	if m.inputMode != InputNone {
+		inputView := lipgloss.NewStyle().
+			Width(60).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Render(m.textInput.View())
+
+		// Place input view at bottom, or overlay?
+		// Simpler to join vertical at the bottom for now, effectively reducing other heights?
+		// Or just append it. If we append, it might push screen up.
+		// Let's just return it at bottom.
+		return lipgloss.JoinVertical(lipgloss.Left, mainView, inputView)
+	}
+
+	// Wrap everything in a container with padding
+	return lipgloss.NewStyle().
+		PaddingTop(50).
+		Render(mainView)
 }

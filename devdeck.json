@@ -1,0 +1,17 @@
+{
+  "tasks": [
+    {
+      "name": "Backend JSON",
+      "command": "node index.js",
+      "directory": "./backend1"
+    },
+    {
+      "name": "Backend JSON 2",
+      "command": "node index.js",
+      "directory": "./backend2",
+      "env": [
+        "PORT=4002"
+      ]
+    }
+  ]
+}

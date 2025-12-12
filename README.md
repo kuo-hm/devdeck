@@ -32,6 +32,9 @@ DevDeck is a terminal user interface (TUI) tool designed to manage your local de
     go run main.go
     # or build and run
     go build -o devdeck.exe && ./devdeck.exe
+
+    # Optional: Specify a custom configuration file
+    ./devdeck.exe -c my-config.yaml
     ```
 
 ## Configuration Reference
@@ -83,10 +86,10 @@ tasks:
 - [x] **Scroll Behavior**: Improve scrolling in log views (autoscroll vs. manual scroll).
 
 ### 🚀 Features
-- [ ] **CLI Arguments**: Support passing configuration file path (e.g., `-config my-deck.yaml`).
-- [ ] **JSON Config**: Add support for JSON configuration files alongside YAML.
-- [ ] **Process Input**: Allow sending interactive input (stdin) to running processes.
-- [ ] **Log Search**: Implement search functionality within the log views.
+- [x] **CLI Arguments**: Support passing configuration file path (e.g., `-config my-deck.yaml`).
+- [x] **JSON Config**: Add support for JSON configuration files alongside YAML.
+- [x] **Process Input**: Allow sending interactive input (stdin) to running processes.
+- [x] **Log Search**: Implement search functionality within the log views.
 - [ ] **Hot Reload**: Automatically reload configuration when `devdeck.yaml` changes.
 
 ### 🎨 Improvements

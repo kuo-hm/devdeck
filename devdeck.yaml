@@ -2,15 +2,31 @@ tasks:
   - name: "Backend API"
     command: "node index.js"
     directory: "./backend1"
-    
+    env:
+      - "PORT=3001"
+    health_check:
+      type: "tcp"
+      target: "localhost:3001"
+      interval: 2000
+    groups: ["core"]
+
   - name: "Backend API 2"
     command: "node index.js"
     directory: "./backend2"
-
+    env:
+      - "PORT=3002"
+    depends_on: ["Backend API"]
+    groups: ["backend"]
 
   - name: "Backend API 3"
     command: "node index.js"
     directory: "./backend3"
     env:
       - "PORT=3003"
-      - "NODE_ENV=development"
+    groups: ["backend"]
+
+theme:
+  primary: "#BD93F9"    # Dracula Purple
+  secondary: "#6272A4"  # Dracula Comment
+  border: "#44475A"     # Dracula Selection
+  text: "#F8F8F2"       # Dracula Foreground

@@ -10,11 +10,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type HealthCheck struct {
+	Type     string `yaml:"type" json:"type"`         // "tcp" or "http"
+	Target   string `yaml:"target" json:"target"`     // "localhost:8080" or "http://localhost..."
+	Interval int    `yaml:"interval" json:"interval"` // ms
+	Timeout  int    `yaml:"timeout" json:"timeout"`   // ms
+}
+
 type Task struct {
-	Name      string   `yaml:"name" json:"name"`
-	Command   string   `yaml:"command" json:"command"`
-	Directory string   `yaml:"directory,omitempty" json:"directory,omitempty"`
-	Env       []string `yaml:"env,omitempty" json:"env,omitempty"`
+	Name        string       `yaml:"name" json:"name"`
+	Command     string       `yaml:"command" json:"command"`
+	Directory   string       `yaml:"directory,omitempty" json:"directory,omitempty"`
+	Env         []string     `yaml:"env,omitempty" json:"env,omitempty"`
+	HealthCheck *HealthCheck `yaml:"health_check,omitempty" json:"health_check,omitempty"`
+	DependsOn   []string     `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	Groups      []string     `yaml:"groups,omitempty" json:"groups,omitempty"`
 }
 
 type Theme struct {
@@ -56,6 +66,14 @@ func LoadConfig(path string) (*Config, error) {
 			// If YAML fails, try JSON? No, that's messy. Let's stick to extension check.
 			// Actually, returning an error for unknown extension is cleaner.
 			return nil, fmt.Errorf("unsupported config file extension: %s", ext)
+		}
+	}
+
+	// Resolve relative paths
+	configDir := filepath.Dir(path)
+	for i := range config.Tasks {
+		if config.Tasks[i].Directory != "" && !filepath.IsAbs(config.Tasks[i].Directory) {
+			config.Tasks[i].Directory = filepath.Join(configDir, config.Tasks[i].Directory)
 		}
 	}
 

@@ -1,0 +1,32 @@
+tasks:
+  - name: "Core API"
+    command: "node server.js"
+    directory: "./api-core"
+    env:
+      - "PORT=3001"
+    health_check:
+      type: "tcp"
+      target: "localhost:3001"
+      interval: 1000
+    groups: ["base"]
+
+  - name: "Service API"
+    command: "node server.js"
+    directory: "./api-service"
+    env:
+      - "PORT=3002"
+    depends_on: ["Core API"]
+    groups: ["app"]
+
+  - name: "Worker"
+    command: "node server.js"
+    directory: "./api-worker"
+    env:
+      - "PORT=3003"
+    groups: ["app"]
+
+theme:
+  primary: "#50FA7B"   # Green
+  secondary: "#BD93F9" # Purple
+  border: "#44475A"
+  text: "#F8F8F2"

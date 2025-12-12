@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -59,6 +61,10 @@ type Model struct {
 
 	cpuUsage float64
 	memUsage float64
+
+	groupMenuVisible bool
+	groupCursor      int
+	groups           []string
 }
 
 // InitialModel creates the initial state from the configuration.
@@ -68,24 +74,54 @@ func InitialModel(cfg *config.Config) Model {
 		processes[i] = process.NewProcess(task)
 	}
 
+	// Sort processes by Group (Stable)
+	sort.SliceStable(processes, func(i, j int) bool {
+		g1 := ""
+		if len(processes[i].Config.Groups) > 0 {
+			g1 = processes[i].Config.Groups[0]
+		}
+		g2 := ""
+		if len(processes[j].Config.Groups) > 0 {
+			g2 = processes[j].Config.Groups[0]
+		}
+		// Empty groups come first (or last? User put "Ungrouped" usually at top?)
+		// Let's say empty ("") < "a". So Ungrouped first.
+		return g1 < g2
+	})
+
 	ti := textinput.New()
 	ti.Placeholder = "Type input..."
 	ti.CharLimit = 156
 	ti.Width = 30
 
+	// Collect unique groups
+	groupSet := make(map[string]bool)
+	for _, t := range cfg.Tasks {
+		for _, g := range t.Groups {
+			groupSet[g] = true
+		}
+	}
+	var groups []string
+	for g := range groupSet {
+		groups = append(groups, g)
+	}
+
 	return Model{
-		processes:   processes,
-		cursor:      0,
-		pinnedIndex: -1,
-		focusedPane: FocusList,
-		textInput:   ti,
-		inputMode:   InputNone,
-		searchQuery: "",
-		matches:     []int{},
-		matchIndex:  -1,
-		theme:       cfg.Theme,
-		cpuUsage:    0.0,
-		memUsage:    0.0,
+		processes:        processes,
+		cursor:           0,
+		pinnedIndex:      -1,
+		focusedPane:      FocusList,
+		textInput:        ti,
+		inputMode:        InputNone,
+		searchQuery:      "",
+		matches:          []int{},
+		matchIndex:       -1,
+		theme:            cfg.Theme,
+		cpuUsage:         0.0,
+		memUsage:         0.0,
+		groupMenuVisible: false,
+		groupCursor:      0,
+		groups:           groups,
 	}
 }
 
@@ -113,10 +149,19 @@ func fetchSystemStats() tea.Msg {
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, proc := range m.processes {
-		if err := proc.Start(); err != nil {
-			// Handle start error
-		}
+		// Activity listener (always start, will block on channel)
 		cmds = append(cmds, waitForActivity(proc.Config.Name, proc.Output))
+
+		// Start Process Command
+		// We wrap this in a Cmd to allow blocking for dependencies without freezing UI
+		p := proc // capture loop variable
+		cmds = append(cmds, func() tea.Msg {
+			waitForDependencies(m.processes, p.Config.DependsOn)
+			if err := p.Start(); err != nil {
+				// We could send an error msg, but status is handled in p.Status
+			}
+			return nil
+		})
 	}
 
 	// Start the stats ticker
@@ -246,6 +291,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.processes = newProcs
+
+		// Sort again
+		sort.SliceStable(m.processes, func(i, j int) bool {
+			g1 := ""
+			if len(m.processes[i].Config.Groups) > 0 {
+				g1 = m.processes[i].Config.Groups[0]
+			}
+			g2 := ""
+			if len(m.processes[j].Config.Groups) > 0 {
+				g2 = m.processes[j].Config.Groups[0]
+			}
+			return g1 < g2
+		})
+
 		// Adjust cursor if out of bounds
 		if m.cursor >= len(m.processes) {
 			m.cursor = len(m.processes) - 1
@@ -395,7 +454,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// If Group Menu is visible
+		if m.groupMenuVisible {
+			switch msg.String() {
+			case "esc", "q", "G", "g":
+				m.groupMenuVisible = false
+				return m, nil
+			case "up", "k":
+				if m.groupCursor > 0 {
+					m.groupCursor--
+				}
+			case "down", "j":
+				if m.groupCursor < len(m.groups)-1 {
+					m.groupCursor++
+				}
+			case "enter":
+				// Restart Group
+				if len(m.groups) > 0 {
+					targetGroup := m.groups[m.groupCursor]
+					for _, p := range m.processes {
+						for _, g := range p.Config.Groups {
+							if g == targetGroup {
+								_ = p.Restart()
+								p.LogBuffer += fmt.Sprintf("\n--- GROUP RESTART (%s) ---\n", targetGroup)
+							}
+						}
+					}
+					m.groupMenuVisible = false
+				}
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
+		case "G", "g":
+			// Toggle Group Menu
+			if len(m.groups) > 0 {
+				m.groupMenuVisible = true
+				m.groupCursor = 0
+			}
 		case "i":
 			if m.inputMode == InputNone {
 				m.inputMode = InputProcess
@@ -667,4 +764,56 @@ func highlightLogs(buffer string, query string) (string, []int) {
 		}
 	}
 	return highlighted.String(), matches
+}
+
+// waitForDependencies blocks until all named dependencies are healthy/running
+func waitForDependencies(processes []*process.Process, dependsOn []string) {
+	if len(dependsOn) == 0 {
+		return
+	}
+
+	for {
+		allReady := true
+		for _, depName := range dependsOn {
+			// Find dependency process
+			var dep *process.Process
+			for _, p := range processes {
+				if p.Config.Name == depName {
+					dep = p
+					break
+				}
+			}
+
+			if dep == nil {
+				// Dependency not found? strict or loose?
+				// Treat as ready to avoid deadlock for typos, maybe log error?
+				// For now, assume ready.
+				continue
+			}
+
+			// Check status
+			// If it has a health check, wait for "Healthy"
+			// If not, wait for "Running"
+			isReady := false
+			if dep.Config.HealthCheck != nil {
+				if dep.HealthStatus == "Healthy" {
+					isReady = true
+				}
+			} else {
+				if dep.Status == "Running" {
+					isReady = true
+				}
+			}
+
+			if !isReady {
+				allReady = false
+				break
+			}
+		}
+
+		if allReady {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }

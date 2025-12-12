@@ -54,7 +54,26 @@ func (m Model) View() string {
 	var tasksView strings.Builder
 	tasksView.WriteString(titleStyle.Render("DevDeck") + "\n\n")
 
+	lastGroup := ""
 	for i, proc := range m.processes {
+		// Determine group for this process
+		thisGroup := ""
+		if len(proc.Config.Groups) > 0 {
+			thisGroup = proc.Config.Groups[0]
+		}
+
+		// Render Group Header if changed and not empty
+		if thisGroup != "" {
+			if i == 0 || lastGroup != thisGroup {
+				// Add spacing if not first line?
+				// User wanted "---group1".
+				// Let's style it bit dimmed.
+				header := fmt.Sprintf("--- %s", thisGroup)
+				tasksView.WriteString(lipgloss.NewStyle().Foreground(secondary).Render(header) + "\n")
+			}
+		}
+		lastGroup = thisGroup
+
 		cursor := " "
 		if m.cursor == i {
 			cursor = ">"
@@ -62,7 +81,15 @@ func (m Model) View() string {
 
 		status := "🔴"
 		if proc.Status == "Running" {
-			status = "🟢"
+			if proc.HealthStatus == "Healthy" {
+				status = "💚"
+			} else if proc.HealthStatus == "Unhealthy" {
+				status = "💔"
+			} else if proc.HealthStatus == "Starting" {
+				status = "🟡"
+			} else {
+				status = "🟢" // Running but no health check or unchecked
+			}
 		}
 
 		pin := "  "
@@ -77,6 +104,8 @@ func (m Model) View() string {
 			// Abbreviated stats: (0%, 36M)
 			line += fmt.Sprintf(" (%.0f%%, %.0fM)", proc.CPUUsage, mb)
 		}
+
+		// Inline group tag removed as requested by new visual style
 
 		if proc.Err != nil {
 			line += fmt.Sprintf(" (Err: %v)", proc.Err)
@@ -217,6 +246,7 @@ func (m Model) View() string {
 					"Actions\n" +
 					"  Enter      : Select / Input\n" +
 					"  r          : Restart process\n" +
+					"  G          : Restart Group\n" +
 					"  s          : Split/Pin view\n" +
 					"  i          : Interact (Stdin)\n" +
 					"  /          : Search logs\n\n" +
@@ -230,6 +260,29 @@ func (m Model) View() string {
 		return lipgloss.NewStyle().
 			Padding(2).
 			Render(helpBox)
+	}
+
+	if m.groupMenuVisible {
+		var content strings.Builder
+		content.WriteString(titleStyle.Render("Select Group to Restart") + "\n\n")
+
+		for i, g := range m.groups {
+			cursor := "  "
+			if m.groupCursor == i {
+				cursor = "> "
+			}
+			content.WriteString(fmt.Sprintf("%s%s\n", cursor, g))
+		}
+
+		groupBox := lipgloss.NewStyle().
+			Width(40).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primary).
+			Padding(1, 2).
+			Align(lipgloss.Center).
+			Render(content.String())
+
+		return lipgloss.NewStyle().Padding(2).Render(groupBox)
 	}
 
 	// Helper for Input Mode (shows input box)

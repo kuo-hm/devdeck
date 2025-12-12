@@ -69,6 +69,7 @@ theme:
 | `Enter` | Select task / Confirm input |
 | `r` | Restart the selected process |
 | `s` | Toggle **Split View** (Pin selected process) |
+| `G` | Open **Group Menu** (Restart named groups) |
 | `i` | Enable **Input Mode** (Send text to stdin) |
 | `/` | **Search** logs (Enter to jump to matches) |
 | `?` | Toggle **Help Menu** |
@@ -118,4 +119,7 @@ To work on DevDeck source code with hot reloading:
 | `tasks[].command` | string | Shell command to execute. |
 | `tasks[].directory` | string | Working directory. |
 | `tasks[].env` | list | Environment variables (`KEY=VAL`). |
+| `tasks[].health_check` | object | `{ type: "tcp/http", target: "...", interval: 2000 }` |
+| `tasks[].depends_on` | list | List of task names to wait for before starting. |
+| `tasks[].groups` | list | List of group tags (e.g. `["backend"]`). |
 | `theme` | object | Color overrides (Optional). |

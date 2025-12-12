@@ -3,9 +3,13 @@ package process
 import (
 	"bufio"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/kuo-hm/devdeck/config"
 	ps "github.com/shirou/gopsutil/v3/process"
@@ -24,14 +28,19 @@ type Process struct {
 	CPUUsage float64
 	MemUsage uint64
 	gopsProc *ps.Process
+
+	HealthStatus string // "Unchecked", "Healthy", "Unhealthy", "Starting"
+
+	epoch int32 // For handling restart races
 }
 
 // NewProcess creates a new Process instance from a task configuration.
 func NewProcess(cfg config.Task) *Process {
 	return &Process{
-		Config: cfg,
-		Status: "Stopped",
-		Output: make(chan string, 1000),
+		Config:       cfg,
+		Status:       "Stopped",
+		HealthStatus: "Unchecked",
+		Output:       make(chan string, 1000),
 	}
 }
 
@@ -86,6 +95,11 @@ func (p *Process) Start() error {
 		p.gopsProc, _ = ps.NewProcess(int32(c.Process.Pid))
 	}
 
+	// Start Health Check Loop
+	if p.Config.HealthCheck != nil {
+		go p.monitorHealth()
+	}
+
 	consume := func(r *bufio.Scanner) {
 		for r.Scan() {
 			p.Output <- r.Text()
@@ -95,12 +109,20 @@ func (p *Process) Start() error {
 	go consume(bufio.NewScanner(stdout))
 	go consume(bufio.NewScanner(stderr))
 
+	// Atomic Epoch (Wait Logic)
+	currentEpoch := atomic.AddInt32(&p.epoch, 1)
+
 	go func() {
-		if err := c.Wait(); err != nil {
-			p.Status = "Error"
-			p.Err = err
-		} else {
-			p.Status = "Stopped"
+		err := c.Wait()
+
+		// Only update status if we are still in the same epoch
+		if atomic.LoadInt32(&p.epoch) == currentEpoch {
+			if err != nil {
+				p.Status = "Error"
+				p.Err = err
+			} else {
+				p.Status = "Stopped"
+			}
 		}
 	}()
 
@@ -149,4 +171,53 @@ func (p *Process) UpdateStats() {
 	if err == nil {
 		p.MemUsage = memInfo.RSS // Resident Set Size in bytes
 	}
+}
+
+// monitorHealth runs periodically to check service status
+func (p *Process) monitorHealth() {
+	hc := p.Config.HealthCheck
+	interval := time.Duration(hc.Interval) * time.Millisecond
+	if interval == 0 {
+		interval = 2000 * time.Millisecond
+	} // Default 2s
+
+	for p.Status == "Running" {
+		if p.checkHealth() {
+			p.HealthStatus = "Healthy"
+		} else {
+			p.HealthStatus = "Unhealthy"
+		}
+		time.Sleep(interval)
+	}
+	p.HealthStatus = "Unchecked"
+}
+
+func (p *Process) checkHealth() bool {
+	hc := p.Config.HealthCheck
+	if hc == nil {
+		return true
+	}
+
+	timeout := time.Duration(hc.Timeout) * time.Millisecond
+	if timeout == 0 {
+		timeout = 1000 * time.Millisecond
+	}
+
+	if hc.Type == "tcp" {
+		conn, err := net.DialTimeout("tcp", hc.Target, timeout)
+		if err != nil {
+			return false
+		}
+		conn.Close()
+		return true
+	} else if hc.Type == "http" {
+		client := http.Client{Timeout: timeout}
+		resp, err := client.Get(hc.Target)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode >= 200 && resp.StatusCode < 400
+	}
+	return false
 }

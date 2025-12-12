@@ -329,7 +329,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Logs: Remainder
 		// Height: Full height - header(2) - borders(2) - footer(1)?
 
-		listWidth := 35
+		// Task List: 45 chars wide (increased for stats)
+		listWidth := 45
 		logWidth := msg.Width - listWidth - 4 // -4 for borders/padding overhead (approx)
 		if logWidth < 10 {
 			logWidth = 10

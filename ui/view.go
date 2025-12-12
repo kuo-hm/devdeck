@@ -74,7 +74,8 @@ func (m Model) View() string {
 
 		if proc.Status == "Running" {
 			mb := float64(proc.MemUsage) / 1024 / 1024
-			line += fmt.Sprintf(" (%.0f%% CPU, %.0f MB)", proc.CPUUsage, mb)
+			// Abbreviated stats: (0%, 36M)
+			line += fmt.Sprintf(" (%.0f%%, %.0fM)", proc.CPUUsage, mb)
 		}
 
 		if proc.Err != nil {

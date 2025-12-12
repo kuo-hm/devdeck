@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -10,7 +11,12 @@ import (
 )
 
 func main() {
-	cfg, err := config.LoadConfig("devdeck.yaml")
+	var configPath string
+	flag.StringVar(&configPath, "config", "devdeck.yaml", "Path to configuration file")
+	flag.StringVar(&configPath, "c", "devdeck.yaml", "Path to configuration file (shorthand)")
+	flag.Parse()
+
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		fmt.Printf("there's been an error: %v", err)
 		os.Exit(1)

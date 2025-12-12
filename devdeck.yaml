@@ -3,9 +3,14 @@ tasks:
     command: "node index.js"
     directory: "./backend1"
     
-  - name: "Backend 2"
+  - name: "Backend API 2"
     command: "node index.js"
     directory: "./backend2"
+
+
+  - name: "Backend API 3"
+    command: "node index.js"
+    directory: "./backend3"
     env:
-      - "PORT=3002"
+      - "PORT=3003"
       - "NODE_ENV=development"

@@ -7,6 +7,15 @@ import (
 	"github.com/kuo-hm/devdeck/process"
 )
 
+// Focus represents the active pane
+type Focus int
+
+const (
+	FocusList Focus = iota
+	FocusLog
+	FocusSecondary
+)
+
 // Model represents the state of the UI.
 type Model struct {
 	processes         []*process.Process
@@ -15,6 +24,7 @@ type Model struct {
 	viewport          viewport.Model
 	secondaryViewport viewport.Model
 	pinnedIndex       int
+	focusedPane       Focus
 }
 
 // InitialModel creates the initial state from the configuration.
@@ -28,6 +38,7 @@ func InitialModel(cfg *config.Config) Model {
 		processes:   processes,
 		cursor:      0,
 		pinnedIndex: -1,
+		focusedPane: FocusList,
 	}
 }
 
@@ -91,22 +102,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "tab":
+			if m.pinnedIndex != -1 {
+				// Cycle 3 panes if split
+				m.focusedPane = (m.focusedPane + 1) % 3
+			} else {
+				// Cycle 2 panes if single
+				m.focusedPane = (m.focusedPane + 1) % 2
+				if m.focusedPane == FocusSecondary {
+					m.focusedPane = FocusList // Skip secondary if not visible
+				}
+			}
+
 		case "ctrl+c", "q":
 			for _, p := range m.processes {
 				_ = p.Stop()
 			}
 			return m, tea.Quit
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-				m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
-				m.viewport.GotoBottom()
+			if m.focusedPane == FocusList {
+				if m.cursor > 0 {
+					m.cursor--
+					m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
+					m.viewport.GotoBottom()
+				}
 			}
 		case "down", "j":
-			if m.cursor < len(m.processes)-1 {
-				m.cursor++
-				m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
-				m.viewport.GotoBottom()
+			if m.focusedPane == FocusList {
+				if m.cursor < len(m.processes)-1 {
+					m.cursor++
+					m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
+					m.viewport.GotoBottom()
+				}
 			}
 		case "r":
 			proc := m.processes[m.cursor]
@@ -141,6 +168,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.pinnedIndex = -1
 				m.viewport.Height = (m.viewport.Height * 2) + 2
+				if m.focusedPane == FocusSecondary {
+					m.focusedPane = FocusList
+				}
 			}
 		}
 
@@ -167,11 +197,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, waitForActivity(msg.TaskIndex, proc.Output))
 	}
 
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+	if m.focusedPane == FocusLog {
+		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
-	m.secondaryViewport, cmd = m.secondaryViewport.Update(msg)
-	cmds = append(cmds, cmd)
+	if m.focusedPane == FocusSecondary {
+		m.secondaryViewport, cmd = m.secondaryViewport.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	return m, tea.Batch(cmds...)
 }

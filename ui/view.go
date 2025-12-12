@@ -49,12 +49,28 @@ func (m Model) View() string {
 
 	tasksView.WriteString("\n'r': restart\n's': split view\n'q': quit\n")
 
+	// Determine border colors based on focus
+	listBorderColor := lipgloss.Color("63") // Default dim purple
+	if m.focusedPane == FocusList {
+		listBorderColor = lipgloss.Color("205") // Pink for focus
+	}
+
+	logBorderColor := lipgloss.Color("63")
+	if m.focusedPane == FocusLog {
+		logBorderColor = lipgloss.Color("205")
+	}
+
+	secondaryBorderColor := lipgloss.Color("63")
+	if m.focusedPane == FocusSecondary {
+		secondaryBorderColor = lipgloss.Color("205")
+	}
+
 	// Render the list
 	taskList := lipgloss.NewStyle().
 		Width(30).
-		Height(m.viewport.Height). // Note: Helper needed if heights differ? For now use active viewport height
+		Height(m.viewport.Height+2). // +2 for border overhead
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("63")).
+		BorderForeground(listBorderColor).
 		Padding(1, 2).
 		Render(tasksView.String())
 
@@ -65,30 +81,29 @@ func (m Model) View() string {
 		// Split View
 		pinnedView := lipgloss.NewStyle().
 			Width(m.secondaryViewport.Width).
-			Height(m.secondaryViewport.Height).
+			Height(m.secondaryViewport.Height+2). // +2 for border
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("205")). // Pink border for pinned
+			BorderForeground(secondaryBorderColor).
 			Padding(0, 1).
 			Render(m.secondaryViewport.View())
 
 		currentView := lipgloss.NewStyle().
 			Width(m.viewport.Width).
-			Height(m.viewport.Height).
+			Height(m.viewport.Height+2). // +2 for border
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("63")).
+			BorderForeground(logBorderColor).
 			Padding(0, 1).
 			Render(m.viewport.View())
 
 		logPane = lipgloss.JoinVertical(lipgloss.Left, pinnedView, currentView)
 
 		// Adjust task list height to match total height
-		// A bit hacky: recalculate border height
-		totalHeight := m.secondaryViewport.Height + m.viewport.Height + 4 // + borders
+		totalHeight := m.secondaryViewport.Height + m.viewport.Height + 4 // +4 for two borders
 		taskList = lipgloss.NewStyle().
 			Width(30).
 			Height(totalHeight).
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("63")).
+			BorderForeground(listBorderColor).
 			Padding(1, 2).
 			Render(tasksView.String())
 
@@ -96,9 +111,9 @@ func (m Model) View() string {
 		// Single View
 		logPane = lipgloss.NewStyle().
 			Width(m.viewport.Width).
-			Height(m.viewport.Height).
+			Height(m.viewport.Height+2). // +2 for border
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("63")).
+			BorderForeground(logBorderColor).
 			Padding(0, 1).
 			Render(m.viewport.View())
 	}

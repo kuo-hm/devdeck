@@ -62,8 +62,9 @@ tasks:
 
 ## Key Bindings
 
--   `j` / `Down`: Move cursor down
--   `k` / `Up`: Move cursor up
+-   `Tab`: Toggle focus between Task List and Log Pane(s)
+-   `j` / `Down`: Move cursor down (Task List) / Scroll down (Log Pane)
+-   `k` / `Up`: Move cursor up (Task List) / Scroll up (Log Pane)
 -   `r`: Restart the selected process
 -   `s`: Toggle split view (Pin/Unpin selected process logs)
 -   `q` / `Ctrl+C`: Quit application
@@ -74,10 +75,22 @@ tasks:
 -   **TUI Framework**: [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 -   **Styling**: [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 
-## ToDo
+## Roadmap
 
--   [ ] Fix height calculation issues in split view (prevent weird resizing).
--   [ ] Fix issue where the first process is not visible in split view.
--   [ ] Support passing configuration file path via CLI arguments (e.g., `-config my-deck.yaml`).
--   [ ] Add support for JSON configuration files (`.json`) alongside YAML.
+### 🐛 Bugs
+- [x] **Split View Layout**: Fix height calculation issues to prevent weird resizing.
+- [x] **First Process Visibility**: Fix issue where the first process is not visible in split view.
+- [x] **Scroll Behavior**: Improve scrolling in log views (autoscroll vs. manual scroll).
+
+### 🚀 Features
+- [ ] **CLI Arguments**: Support passing configuration file path (e.g., `-config my-deck.yaml`).
+- [ ] **JSON Config**: Add support for JSON configuration files alongside YAML.
+- [ ] **Process Input**: Allow sending interactive input (stdin) to running processes.
+- [ ] **Log Search**: Implement search functionality within the log views.
+- [ ] **Hot Reload**: Automatically reload configuration when `devdeck.yaml` changes.
+
+### 🎨 Improvements
+- [ ] **Themes**: Allow UI color customization via config.
+- [ ] **Process Groups**: Ability to start/stop multiple services at once.
+- [ ] **Help Menu**: Add a comprehensive help modal (`?` key).
 

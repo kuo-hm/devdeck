@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -9,6 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kuo-hm/devdeck/config"
 	"github.com/kuo-hm/devdeck/process"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 // Focus represents the active pane
@@ -29,6 +32,12 @@ const (
 	InputSearch
 )
 
+// Msg for system stats
+type TickMsg struct {
+	CPU float64
+	Mem float64
+}
+
 // Model represents the state of the UI.
 type Model struct {
 	processes         []*process.Process
@@ -47,6 +56,9 @@ type Model struct {
 	theme             *config.Theme
 	width             int
 	height            int
+
+	cpuUsage float64
+	memUsage float64
 }
 
 // InitialModel creates the initial state from the configuration.
@@ -72,6 +84,28 @@ func InitialModel(cfg *config.Config) Model {
 		matches:     []int{},
 		matchIndex:  -1,
 		theme:       cfg.Theme,
+		cpuUsage:    0.0,
+		memUsage:    0.0,
+	}
+}
+
+// Command to fetch system stats
+func fetchSystemStats() tea.Msg {
+	// simulate async wait if needed, but here we just sleep then fetch?
+	// ACTUALLY, we want to sleep 1s then fetch.
+	time.Sleep(1 * time.Second)
+
+	v, _ := mem.VirtualMemory()
+	c, _ := cpu.Percent(0, false)
+
+	cpuVal := 0.0
+	if len(c) > 0 {
+		cpuVal = c[0]
+	}
+
+	return TickMsg{
+		CPU: cpuVal,
+		Mem: v.UsedPercent,
 	}
 }
 
@@ -84,7 +118,13 @@ func (m Model) Init() tea.Cmd {
 		}
 		cmds = append(cmds, waitForActivity(proc.Config.Name, proc.Output))
 	}
-	return tea.Batch(cmds...)
+
+	// Start the stats ticker
+	cmds = append(cmds, func() tea.Msg {
+		return fetchSystemStats()
+	})
+
+	return tea.Batch(tea.Batch(cmds...), tea.EnableMouseCellMotion)
 }
 
 func waitForActivity(name string, output chan string) tea.Cmd {
@@ -106,6 +146,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case TickMsg:
+		m.cpuUsage = msg.CPU
+		m.memUsage = msg.Mem
+		// Schedule next tick
+		return m, func() tea.Msg { return fetchSystemStats() }
+
 	case ConfigChangedMsg:
 		newCfg := msg
 		m.theme = newCfg.Theme
@@ -207,6 +253,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
 		} else {
 			m.viewport.SetContent("")
+		}
+
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseWheelUp {
+			if m.focusedPane == FocusLog {
+				m.viewport.LineUp(3)
+			} else if m.focusedPane == FocusSecondary {
+				m.secondaryViewport.LineUp(3)
+			}
+		} else if msg.Type == tea.MouseWheelDown {
+			if m.focusedPane == FocusLog {
+				m.viewport.LineDown(3)
+			} else if m.focusedPane == FocusSecondary {
+				m.secondaryViewport.LineDown(3)
+			}
+		} else if msg.Type == tea.MouseLeft {
+			// Hit Testing
+			// Global Padding is 1.
+			// List Width approx 40 (35 content + padding/border)
+
+			// Click in List Area?
+			if msg.X < 40 {
+				// Task selection
+				// Header takes ~3 lines? "DevDeck\n\n" inside list box.
+				// List box starts at Y=1 (Global padding).
+				// Inside list box: Line 0 is "DevDeck", Line 1 is empty. Line 2 is Task 0.
+				// So Task 0 is at global Y = 1 + 2 = 3.
+
+				clickedIndex := msg.Y - 4 // Approximate offset (1 global + 2 header + 1 border?)
+				// Let's allow clicking broadly.
+
+				if clickedIndex >= 0 && clickedIndex < len(m.processes) {
+					m.cursor = clickedIndex
+					m.focusedPane = FocusList
+
+					// Update logs similar to 'down' key
+					proc := m.processes[m.cursor]
+					content, matches := highlightLogs(proc.LogBuffer, m.searchQuery)
+					m.viewport.SetContent(content)
+					m.matches = matches
+					m.viewport.GotoBottom()
+				}
+			} else {
+				// Click in Log Area
+				m.focusedPane = FocusLog
+
+				if m.pinnedIndex >= 0 {
+					// Split View Check
+					// Top Pane height (visual) = m.secondaryViewport.Height + 3 (title+borders)
+					// Global Y offset = 1.
+					splitY := 1 + m.secondaryViewport.Height + 3
+
+					if msg.Y < splitY {
+						m.focusedPane = FocusSecondary
+					} else {
+						m.focusedPane = FocusLog
+					}
+				}
+			}
 		}
 
 	case tea.WindowSizeMsg:

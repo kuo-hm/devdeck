@@ -8,5 +8,8 @@ const server = http.createServer((req, res) => {
 
 const port = 3001;
 server.listen(port, () => {
+  for (let i = 0; i < 1000; i++) {
+    console.log('Hello, World!');
+  }
   console.log(`Server running at http://localhost:${port}/`);
 });

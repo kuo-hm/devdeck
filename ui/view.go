@@ -180,15 +180,26 @@ func (m Model) View() string {
 			Render(m.viewport.View())
 	}
 
-	// Main view is list + logs
-	// JoinHorizontal handles side-by-side placement
+	// Status Bar
+	statusBarStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Background(lipgloss.Color("#333333")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(0, 1)
+
+	statusText := fmt.Sprintf("CPU: %.1f%% | MEM: %.1f%%", m.cpuUsage, m.memUsage)
+	statusBar := statusBarStyle.Render(statusText)
+
+	// Combine List + LogPane
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, taskList, logPane)
 
+	// Create help view if visible (MODAL)
 	if m.helpVisible {
 		helpBox := lipgloss.NewStyle().
-			Width(50).
+			Width(60).
+			Height(20).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(primary).
+			BorderForeground(lipgloss.Color("63")).
 			Padding(1, 2).
 			Align(lipgloss.Center).
 			Render(
@@ -207,16 +218,14 @@ func (m Model) View() string {
 					"  q/Esc      : Quit / Back",
 			)
 
-		// Attempt to center the help box
-		// Since we don't have total width/height easily accessible here (we could store it in Model),
-		// we'll just overlay it or return it.
-		// For a TUI, returning just the box works, but overlay is nicer.
-		// Let's just return the box for now to ensure it works.
+		// Center modal? For now just return it as full view or overlay.
+		// Previous code just returned it with padding.
 		return lipgloss.NewStyle().
 			Padding(2).
 			Render(helpBox)
 	}
 
+	// Helper for Input Mode (shows input box)
 	if m.inputMode != InputNone {
 		inputView := lipgloss.NewStyle().
 			Width(60).
@@ -224,12 +233,24 @@ func (m Model) View() string {
 			BorderForeground(primary).
 			Render(m.textInput.View())
 
-		return lipgloss.JoinVertical(lipgloss.Left, mainView, inputView)
+		// Insert input between main view and status bar?
+		// Or append to main view.
+		mainView = lipgloss.JoinVertical(lipgloss.Left, mainView, inputView)
 	}
+
+	// Append Status Bar at the very bottom
+	// finalView := lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar) // Redundant
 
 	// Wrap everything in a container with padding
 	// User previously set PaddingTop(50), resetting to 1 for usability.
-	return lipgloss.NewStyle().
-		Padding(1).
-		Render(mainView)
+	// Actually padding 1 around the whole specific view might shift the status bar.
+	// Status bar should be full width.
+	// So maybe padding applies to mainView BEFORE status bar?
+
+	// Let's optimize: MainView Padding 1, StatusBar no padding (except internal).
+
+	mainViewPadded := lipgloss.NewStyle().Padding(1).Render(mainView)
+
+	// Re-compose final
+	return lipgloss.JoinVertical(lipgloss.Left, mainViewPadded, statusBar)
 }

@@ -22,6 +22,7 @@ type Task struct {
 	Command     string       `yaml:"command" json:"command"`
 	Directory   string       `yaml:"directory,omitempty" json:"directory,omitempty"`
 	Env         []string     `yaml:"env,omitempty" json:"env,omitempty"`
+	EnvFile     string       `yaml:"env_file,omitempty" json:"env_file,omitempty"`
 	HealthCheck *HealthCheck `yaml:"health_check,omitempty" json:"health_check,omitempty"`
 	DependsOn   []string     `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	Groups      []string     `yaml:"groups,omitempty" json:"groups,omitempty"`
@@ -69,13 +70,54 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	// Resolve relative paths
+	// Resolve relative paths and load .env files
 	configDir := filepath.Dir(path)
 	for i := range config.Tasks {
-		if config.Tasks[i].Directory != "" && !filepath.IsAbs(config.Tasks[i].Directory) {
-			config.Tasks[i].Directory = filepath.Join(configDir, config.Tasks[i].Directory)
+		task := &config.Tasks[i]
+
+		// Resolve Directory
+		if task.Directory != "" && !filepath.IsAbs(task.Directory) {
+			task.Directory = filepath.Join(configDir, task.Directory)
+		}
+
+		// Process EnvFile
+		if task.EnvFile != "" {
+			envPath := task.EnvFile
+			if !filepath.IsAbs(envPath) {
+				envPath = filepath.Join(configDir, envPath)
+			}
+
+			fileEnv, err := parseEnvFile(envPath)
+			if err == nil {
+				// Prepend file envs so manual envs override them
+				task.Env = append(fileEnv, task.Env...)
+			} else {
+				// Log warning? For now just ignore or print to stdout
+				fmt.Printf("Warning: failed to load env_file %s: %v\n", envPath, err)
+			}
 		}
 	}
 
 	return &config, nil
+}
+
+func parseEnvFile(path string) ([]string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var envs []string
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Basic KEY=VAL parsing
+		if strings.Contains(line, "=") {
+			envs = append(envs, line)
+		}
+	}
+	return envs, nil
 }

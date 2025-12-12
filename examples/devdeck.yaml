@@ -21,8 +21,7 @@ tasks:
   - name: "Worker"
     command: "node server.js"
     directory: "./api-worker"
-    env:
-      - "PORT=3003"
+    env_file: ".env"
     groups: ["app"]
 
 theme:

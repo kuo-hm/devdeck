@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
+	"time"
 
 	"log"
 
@@ -14,6 +16,20 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			f, _ := os.OpenFile("devdeck-crash.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				timestamp := time.Now().Format(time.RFC3339)
+				f.WriteString(fmt.Sprintf("[%s] PANIC: %v\n%s\n", timestamp, r, string(debug.Stack())))
+				f.Close()
+			}
+			fmt.Println("\n\nDevDeck crashed! 💥")
+			fmt.Println("Error details saved to devdeck-crash.log")
+			os.Exit(1)
+		}
+	}()
+
 	var configPath string
 	flag.StringVar(&configPath, "config", "devdeck.yaml", "Path to configuration file")
 	flag.StringVar(&configPath, "c", "devdeck.yaml", "Path to configuration file (shorthand)")

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kuo-hm/devdeck/config"
+	ps "github.com/shirou/gopsutil/v3/process"
 )
 
 // Process represents a running task with its configuration and state.
@@ -19,6 +20,10 @@ type Process struct {
 	Err       error
 	LogBuffer string
 	Stdin     io.WriteCloser
+
+	CPUUsage float64
+	MemUsage uint64
+	gopsProc *ps.Process
 }
 
 // NewProcess creates a new Process instance from a task configuration.
@@ -76,6 +81,11 @@ func (p *Process) Start() error {
 	p.Cmd = c
 	p.Status = "Running"
 
+	// Create resource monitor handle
+	if c.Process != nil {
+		p.gopsProc, _ = ps.NewProcess(int32(c.Process.Pid))
+	}
+
 	consume := func(r *bufio.Scanner) {
 		for r.Scan() {
 			p.Output <- r.Text()
@@ -120,4 +130,23 @@ func (p *Process) SendInput(input string) error {
 	}
 	_, err := io.WriteString(p.Stdin, input+"\n")
 	return err
+}
+
+// UpdateStats fetches current resource usage for the process.
+func (p *Process) UpdateStats() {
+	if p.Status != "Running" || p.gopsProc == nil {
+		p.CPUUsage = 0
+		p.MemUsage = 0
+		return
+	}
+
+	cpuPercent, err := p.gopsProc.Percent(0)
+	if err == nil {
+		p.CPUUsage = cpuPercent
+	}
+
+	memInfo, err := p.gopsProc.MemoryInfo()
+	if err == nil {
+		p.MemUsage = memInfo.RSS // Resident Set Size in bytes
+	}
 }

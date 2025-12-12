@@ -71,6 +71,12 @@ func (m Model) View() string {
 		}
 
 		line := fmt.Sprintf("%s %s %s %s", cursor, pin, status, proc.Config.Name)
+
+		if proc.Status == "Running" {
+			mb := float64(proc.MemUsage) / 1024 / 1024
+			line += fmt.Sprintf(" (%.0f%% CPU, %.0f MB)", proc.CPUUsage, mb)
+		}
+
 		if proc.Err != nil {
 			line += fmt.Sprintf(" (Err: %v)", proc.Err)
 		}

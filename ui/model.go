@@ -149,6 +149,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TickMsg:
 		m.cpuUsage = msg.CPU
 		m.memUsage = msg.Mem
+
+		// Update per-process stats
+		for _, p := range m.processes {
+			p.UpdateStats()
+		}
+
 		// Schedule next tick
 		return m, func() tea.Msg { return fetchSystemStats() }
 

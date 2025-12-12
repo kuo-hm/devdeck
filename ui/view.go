@@ -5,21 +5,51 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/kuo-hm/devdeck/config"
 )
 
-var (
-	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	normalStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	titleStyle   = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 1)
-)
+func getThemeColor(theme *config.Theme, key, fallback string) lipgloss.Color {
+	if theme == nil {
+		return lipgloss.Color(fallback)
+	}
+	switch key {
+	case "primary":
+		if theme.Primary != "" {
+			return lipgloss.Color(theme.Primary)
+		}
+	case "secondary":
+		if theme.Secondary != "" {
+			return lipgloss.Color(theme.Secondary)
+		}
+	case "border":
+		if theme.Border != "" {
+			return lipgloss.Color(theme.Border)
+		}
+	case "text":
+		if theme.Text != "" {
+			return lipgloss.Color(theme.Text)
+		}
+	}
+	return lipgloss.Color(fallback)
+}
 
 func (m Model) View() string {
 	if !m.ready {
 		return "\n  Initializing..."
 	}
+
+	// Define colors
+	primary := getThemeColor(m.theme, "primary", "205")         // Pink
+	secondary := getThemeColor(m.theme, "secondary", "#7D56F4") // Purple
+	border := getThemeColor(m.theme, "border", "63")            // Dim Purple
+	text := getThemeColor(m.theme, "text", "240")               // Grey
+
+	focusedStyle := lipgloss.NewStyle().Foreground(primary)
+	normalStyle := lipgloss.NewStyle().Foreground(text)
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(secondary).
+		Padding(0, 1)
 
 	var tasksView strings.Builder
 	tasksView.WriteString(titleStyle.Render("DevDeck") + "\n\n")
@@ -35,7 +65,12 @@ func (m Model) View() string {
 			status = "🟢"
 		}
 
-		line := fmt.Sprintf("%s %s %s", cursor, status, proc.Config.Name)
+		pin := "  "
+		if m.pinnedIndex == i {
+			pin = "📌"
+		}
+
+		line := fmt.Sprintf("%s %s %s %s", cursor, pin, status, proc.Config.Name)
 		if proc.Err != nil {
 			line += fmt.Sprintf(" (Err: %v)", proc.Err)
 		}
@@ -47,96 +82,97 @@ func (m Model) View() string {
 		}
 	}
 
-	tasksView.WriteString("\n'r': restart\n's': split view\n'q': quit\n")
+	tasksView.WriteString("\n'r': restart\n's': split view\n'i': input\n'/': search\n'?': help\n'q': quit\n")
 
 	// Determine border colors based on focus
-	listBorderColor := lipgloss.Color("63") // Default dim purple
+	listBorderColor := border
 	if m.focusedPane == FocusList {
-		listBorderColor = lipgloss.Color("205") // Pink for focus
+		listBorderColor = primary
 	}
 
-	logBorderColor := lipgloss.Color("63")
+	logBorderColor := border
 	if m.focusedPane == FocusLog {
-		logBorderColor = lipgloss.Color("205")
+		logBorderColor = primary
 	}
 
-	secondaryBorderColor := lipgloss.Color("63")
+	secondaryBorderColor := border
 	if m.focusedPane == FocusSecondary {
-		secondaryBorderColor = lipgloss.Color("205")
+		secondaryBorderColor = primary
 	}
 
-	// Determine list width (e.g., 30% of screen, min 30)
-	listWidth := m.viewport.Width / 2 // Viewport is half width? No, viewport width is calculated as msg.Width / 2 in Update.
-	// Wait, m.viewport.Width is already half the screen width roughly?
-	// In Update: m.viewport = viewport.New(msg.Width/2, ...)
-	// So m.viewport.Width is 50%.
+	// Layout Constants (Must match WindowSizeMsg in Update)
+	const listWidthC = 35
 
-	// Let's use a fixed 30% of total width for the List?
-	// We don't have msg.Width here in View(), we rely on m.viewport.Width which is half.
-	// Actually, let's just make it wider for now, e.g. 45.
-	// Or better, let's use a dynamic size if we can infer it.
-	// We can't easily infer total width from just m.viewport.Width unless we assume it's exactly 50%.
-
-	// Let's just set it to 40 for now, simpler and covers most cases.
-	listWidth = 40
+	// Available height for panels (Screen - Header - Footer overhead)
+	// We use m.viewport.Height as the guide for Log Pane height.
+	// Task list should match total height.
 
 	// Render the list
+	// We want the list to fill the available height. Use m.height as base.
+	// Safety check for m.height being 0 at start
+	safeHeight := m.height - 4
+	if safeHeight < 0 {
+		safeHeight = 0
+	}
+
 	taskList := lipgloss.NewStyle().
-		MarginTop(5).
-		Width(listWidth).
-		Height(m.viewport.Height-2). // +2 for border overhead
+		Width(listWidthC).
+		Height(safeHeight).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(listBorderColor).
-		Padding(1, 2).
+		Padding(0, 1). // Reduced padding to save space?
 		Render(tasksView.String())
 
 	// Render the logs
 	var logPane string
 
-	// Width for logs needs to be remaining space?
-	// Currently viewport is set to half width.
-	// We should probably rely on the layout engine (JoinHorizontal) or update Viewport width in Update.
-	// For now, increasing list width might push logs?
-	// View() just renders strings. JoinHorizontal joins them.
-	// If List is 40 and Log is 50% of screen... on a small screen (80 cols), 40 + 40 = 80. Tight.
-	// On 100 cols: 40 + 50 = 90. Fine.
+	// The log viewports are already resized in Update() to the correct width/height.
+	// We just need to wrap them in a border.
 
 	if m.pinnedIndex >= 0 {
 		// Split View
+		pinnedName := m.processes[m.pinnedIndex].Config.Name
+
+		// Manually create a title if BorderTitle isn't available/reliable?
+		// Let's try standard BorderTitle.
+		// Manual Pin Header
+		titleStyle := lipgloss.NewStyle().
+			Foreground(secondary).
+			Bold(true).
+			Padding(0, 0, 0, 1) // Left padding for text indent
+
+		title := titleStyle.Render("📌 " + pinnedName)
+
+		// Join title + content vertically.
+		// Note: model.go reduces viewport height by 1 extra line (3 total) to fit this title.
+		content := lipgloss.JoinVertical(lipgloss.Left, title, m.secondaryViewport.View())
+
 		pinnedView := lipgloss.NewStyle().
 			Width(m.secondaryViewport.Width).
-			Height(m.secondaryViewport.Height-2). // +2 for border
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(secondaryBorderColor).
+			Padding(0, 0). // Padding inside border handled by content/title structure?
+			// Viewport has no padding. Title has padding.
+			// But keeping 0,1 padding matches the other log pane style?
+			// If we put title inside, 'Padding(0,1)' applies to the wrapper.
+			// Let's keep it consistent.
 			Padding(0, 1).
-			Render(m.secondaryViewport.View())
+			Render(content)
 
 		currentView := lipgloss.NewStyle().
 			Width(m.viewport.Width).
-			Height(m.viewport.Height-2). // +2 for border
+			// Height(m.viewport.Height).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(logBorderColor).
 			Padding(0, 1).
 			Render(m.viewport.View())
 
 		logPane = lipgloss.JoinVertical(lipgloss.Left, pinnedView, currentView)
-
-		// Adjust task list height to match total height
-		totalHeight := m.secondaryViewport.Height + m.viewport.Height + 4 // +4 for two borders
-		taskList = lipgloss.NewStyle().
-			Width(listWidth).
-			Height(totalHeight).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(listBorderColor).
-			Padding(1, 2).
-			Render(tasksView.String())
-
 	} else {
 		// Single View
 		logPane = lipgloss.NewStyle().
-			MarginTop(5).
 			Width(m.viewport.Width).
-			Height(m.viewport.Height-2). // +2 for border
+			// Height(m.viewport.Height).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(logBorderColor).
 			Padding(0, 1).
@@ -144,24 +180,55 @@ func (m Model) View() string {
 	}
 
 	// Main view is list + logs
+	// JoinHorizontal handles side-by-side placement
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, taskList, logPane)
+
+	if m.helpVisible {
+		helpBox := lipgloss.NewStyle().
+			Width(50).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primary).
+			Padding(1, 2).
+			Align(lipgloss.Center).
+			Render(
+				titleStyle.Render("Help") + "\n\n" +
+					"Navigation\n" +
+					"  ↑/k, ↓/j   : Move cursor\n" +
+					"  Tab        : Switch focus\n\n" +
+					"Actions\n" +
+					"  Enter      : Select / Input\n" +
+					"  r          : Restart process\n" +
+					"  s          : Split/Pin view\n" +
+					"  i          : Interact (Stdin)\n" +
+					"  /          : Search logs\n\n" +
+					"General\n" +
+					"  ?          : Close Help\n" +
+					"  q/Esc      : Quit / Back",
+			)
+
+		// Attempt to center the help box
+		// Since we don't have total width/height easily accessible here (we could store it in Model),
+		// we'll just overlay it or return it.
+		// For a TUI, returning just the box works, but overlay is nicer.
+		// Let's just return the box for now to ensure it works.
+		return lipgloss.NewStyle().
+			Padding(2).
+			Render(helpBox)
+	}
 
 	if m.inputMode != InputNone {
 		inputView := lipgloss.NewStyle().
 			Width(60).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("205")).
+			BorderForeground(primary).
 			Render(m.textInput.View())
 
-		// Place input view at bottom, or overlay?
-		// Simpler to join vertical at the bottom for now, effectively reducing other heights?
-		// Or just append it. If we append, it might push screen up.
-		// Let's just return it at bottom.
 		return lipgloss.JoinVertical(lipgloss.Left, mainView, inputView)
 	}
 
 	// Wrap everything in a container with padding
+	// User previously set PaddingTop(50), resetting to 1 for usability.
 	return lipgloss.NewStyle().
-		PaddingTop(50).
+		Padding(1).
 		Render(mainView)
 }

@@ -14,20 +14,28 @@ DevDeck is a terminal user interface (TUI) tool designed to manage your local de
 
 ## Usage
 
-1.  **Configure**: Create a `devdeck.yaml` file in the root directory.
+1.  **### Configuration
 
-    ```yaml
-    tasks:
-      - name: "Backend API"
-        command: "npm start"
-        directory: "./backend"
-        env:
-          - "PORT=3000"
+Create a `devdeck.yaml` file in your project root:
 
-      - name: "Frontend"
-        command: "npm run dev"
-        directory: "./frontend"
-    ```
+```yaml
+tasks:
+  - name: "Backend"
+    command: "go run main.go"
+    directory: "./backend"
+    env:
+      - "PORT=8080"
+  - name: "Frontend"
+    command: "npm start"
+    directory: "./frontend"
+
+# Optional: Customize UI colors
+theme:
+  primary: "#FF00FF"    # Focused elements, borders
+  secondary: "#00FFFF"  # Backgrounds, accents
+  border: "#444444"     # Default borders
+  text: "#FFFFFF"       # Default text
+```    ```
 
 2.  **Run**:
     ```bash
@@ -73,8 +81,9 @@ tasks:
 -   `r`: Restart the selected process
 -   `s`: Toggle split view (Pin/Unpin selected process logs)
 -   `i`: Enable interactive input (stdin) for the selected process
--   `/`: Search/Filter logs
+-   `/`: Search logs (Highlight matches and use Enter to jump)
 -   `q` / `Ctrl+C`: Quit application
+-   `?`: Toggle Help Menu
 
 ## Tech Stack
 

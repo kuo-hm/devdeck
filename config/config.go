@@ -17,8 +17,16 @@ type Task struct {
 	Env       []string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
+type Theme struct {
+	Primary   string `yaml:"primary" json:"primary"`
+	Secondary string `yaml:"secondary" json:"secondary"`
+	Border    string `yaml:"border" json:"border"`
+	Text      string `yaml:"text" json:"text"`
+}
+
 type Config struct {
 	Tasks []Task `yaml:"tasks" json:"tasks"`
+	Theme *Theme `yaml:"theme,omitempty" json:"theme,omitempty"`
 }
 
 func LoadConfig(path string) (*Config, error) {

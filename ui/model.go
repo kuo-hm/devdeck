@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kuo-hm/devdeck/config"
 	"github.com/kuo-hm/devdeck/process"
 )
@@ -40,6 +41,12 @@ type Model struct {
 	textInput         textinput.Model
 	inputMode         InputMode
 	searchQuery       string
+	matches           []int // Line numbers of search matches
+	matchIndex        int   // Current match index (in matches array)
+	helpVisible       bool
+	theme             *config.Theme
+	width             int
+	height            int
 }
 
 // InitialModel creates the initial state from the configuration.
@@ -62,6 +69,9 @@ func InitialModel(cfg *config.Config) Model {
 		textInput:   ti,
 		inputMode:   InputNone,
 		searchQuery: "",
+		matches:     []int{},
+		matchIndex:  -1,
+		theme:       cfg.Theme,
 	}
 }
 
@@ -98,6 +108,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case ConfigChangedMsg:
 		newCfg := msg
+		m.theme = newCfg.Theme
 		var newProcs []*process.Process
 
 		// Map existing processes by name for easy lookup
@@ -199,24 +210,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		// Layout definition:
+		// Task List: 35 chars wide (fixed enough for names)
+		// Logs: Remainder
+		// Height: Full height - header(2) - borders(2) - footer(1)?
+
+		listWidth := 35
+		logWidth := msg.Width - listWidth - 4 // -4 for borders/padding overhead (approx)
+		if logWidth < 10 {
+			logWidth = 10
+		}
+
+		// Calculate available height for content
+		// Title (2) + Footer/Help hint (2) + Borders (2) = 6 lines overhead?
+		// Let's be safe with -4 for viewports, View() handles outer containers.
+		// View() adds borders.
+
+		availableHeight := msg.Height - 4 // General safe area
+
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width/2, msg.Height-6)
-			m.secondaryViewport = viewport.New(msg.Width/2, msg.Height-6)
+			m.viewport = viewport.New(logWidth, availableHeight)
+			m.secondaryViewport = viewport.New(logWidth, availableHeight)
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width / 2
-			m.secondaryViewport.Width = msg.Width / 2
+			m.viewport.Width = logWidth
+			m.secondaryViewport.Width = logWidth
 
 			if m.pinnedIndex >= 0 {
-				availableHeight := msg.Height - 4
-				h := availableHeight / 2
-				if h < 0 {
-					h = 0
+				// Split view: vertical half
+				halfHeight := availableHeight / 2
+				remainderHeight := availableHeight - halfHeight
+
+				// Top pane has title: -3 (2 border, 1 title)
+				vpHeightTop := halfHeight - 3
+				if vpHeightTop < 0 {
+					vpHeightTop = 0
 				}
-				m.viewport.Height = h
-				m.secondaryViewport.Height = h
+
+				vpHeightBot := remainderHeight - 2
+				if vpHeightBot < 0 {
+					vpHeightBot = 0
+				}
+
+				m.secondaryViewport.Height = vpHeightTop
+				m.viewport.Height = vpHeightBot
 			} else {
-				availableHeight := msg.Height - 2
+				// Single View
 				h := availableHeight
 				if h < 0 {
 					h = 0
@@ -227,6 +269,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Toggle Help
+		if msg.String() == "?" {
+			m.helpVisible = !m.helpVisible
+			return m, nil
+		}
+
+		// If help is visible, ignore other keys except Esc/q to close
+		if m.helpVisible {
+			if msg.String() == "esc" || msg.String() == "q" {
+				m.helpVisible = false
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "i":
 			if m.inputMode == InputNone {
@@ -261,8 +317,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Update viewport with filtered content
 				proc := m.processes[m.cursor]
-				content := filterLogs(proc.LogBuffer, m.searchQuery)
+				content, matches := highlightLogs(proc.LogBuffer, m.searchQuery)
 				m.viewport.SetContent(content)
+				m.matches = matches
 				m.viewport.GotoBottom()
 
 				// Reset input
@@ -310,7 +367,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inputMode == InputNone && m.focusedPane == FocusList {
 				if m.cursor > 0 {
 					m.cursor--
-					content := filterLogs(m.processes[m.cursor].LogBuffer, m.searchQuery)
+					content, _ := highlightLogs(m.processes[m.cursor].LogBuffer, m.searchQuery)
 					m.viewport.SetContent(content)
 					m.viewport.GotoBottom()
 				}
@@ -319,7 +376,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inputMode == InputNone && m.focusedPane == FocusList {
 				if m.cursor < len(m.processes)-1 {
 					m.cursor++
-					content := filterLogs(m.processes[m.cursor].LogBuffer, m.searchQuery)
+					content, _ := highlightLogs(m.processes[m.cursor].LogBuffer, m.searchQuery)
 					m.viewport.SetContent(content)
 					m.viewport.GotoBottom()
 				}
@@ -331,8 +388,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				proc.LogBuffer += "\n--- RESTARTED ---\n"
 
 				atBottom := m.viewport.AtBottom()
-				content := filterLogs(proc.LogBuffer, m.searchQuery)
+				content, matches := highlightLogs(proc.LogBuffer, m.searchQuery)
 				m.viewport.SetContent(content)
+				m.matches = matches
 				if atBottom {
 					m.viewport.GotoBottom()
 				}
@@ -348,21 +406,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if m.inputMode == InputNone {
 				if m.pinnedIndex == -1 {
+					// Enable Split View
 					m.pinnedIndex = m.cursor
 					m.secondaryViewport.SetContent(m.processes[m.pinnedIndex].LogBuffer)
-					m.secondaryViewport.GotoBottom()
 
-					h := (m.viewport.Height - 2) / 2
-					if h < 0 {
-						h = 0
+					// Resize viewports for split
+					if m.height > 0 {
+						availableHeight := m.height - 4
+						halfHeight := availableHeight / 2               // Top pane
+						remainderHeight := availableHeight - halfHeight // Bottom pane gets remainder
+
+						// Top pane has a Title line now ("📌 Name")
+						// So subtract 2 (border) + 1 (title) = 3
+						vpHeightTop := halfHeight - 3
+						if vpHeightTop < 0 {
+							vpHeightTop = 0
+						}
+
+						vpHeightBot := remainderHeight - 2
+						if vpHeightBot < 0 {
+							vpHeightBot = 0
+						}
+
+						m.secondaryViewport.Height = vpHeightTop
+						m.viewport.Height = vpHeightBot
+
+						m.viewport.GotoBottom() // Re-scroll user viewport too
+						m.secondaryViewport.GotoBottom()
 					}
-					m.viewport.Height = h
-					m.secondaryViewport.Height = h - 1
 				} else {
+					// Disable Split View
 					m.pinnedIndex = -1
-					m.viewport.Height = (m.viewport.Height * 2) + 2
-					if m.focusedPane == FocusSecondary {
-						m.focusedPane = FocusList
+					m.focusedPane = FocusList // Reset focus if on secondary
+
+					// Resize viewport for single view
+					if m.height > 0 {
+						availableHeight := m.height - 4
+						h := availableHeight
+						if h < 0 {
+							h = 0
+						}
+						m.viewport.Height = h
+						m.secondaryViewport.Height = 0
+						m.viewport.GotoBottom()
 					}
 				}
 			}
@@ -390,8 +476,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if index == m.cursor {
 			atBottom := m.viewport.AtBottom()
 			// Apply filter if search query exists
-			content := filterLogs(proc.LogBuffer, m.searchQuery)
+			content, matches := highlightLogs(proc.LogBuffer, m.searchQuery)
 			m.viewport.SetContent(content)
+			m.matches = matches
 			if atBottom {
 				m.viewport.GotoBottom()
 			}
@@ -427,16 +514,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func filterLogs(buffer string, query string) string {
+func highlightLogs(buffer string, query string) (string, []int) {
 	if query == "" {
-		return buffer
+		return buffer, []int{}
 	}
-	var filtered strings.Builder
+
 	lines := strings.Split(buffer, "\n")
-	for _, line := range lines {
-		if strings.Contains(strings.ToLower(line), strings.ToLower(query)) {
-			filtered.WriteString(line + "\n")
+	var matches []int
+	var highlighted strings.Builder
+
+	// Prepare highlight style (classic yellow background, black text)
+	hlStyle := lipgloss.NewStyle().Background(lipgloss.Color("#FFFF00")).Foreground(lipgloss.Color("#000000"))
+
+	lowQuery := strings.ToLower(query)
+
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(line), lowQuery) {
+			matches = append(matches, i)
+
+			var sb strings.Builder
+			currentLower := strings.ToLower(line)
+			currentOriginal := line
+
+			for {
+				idx := strings.Index(currentLower, lowQuery)
+				if idx == -1 {
+					sb.WriteString(currentOriginal)
+					break
+				}
+
+				sb.WriteString(currentOriginal[:idx])
+				sb.WriteString(hlStyle.Render(currentOriginal[idx : idx+len(query)]))
+
+				currentLower = currentLower[idx+len(query):]
+				currentOriginal = currentOriginal[idx+len(query):]
+			}
+			highlighted.WriteString(sb.String() + "\n")
+		} else {
+			highlighted.WriteString(line + "\n")
 		}
 	}
-	return filtered.String()
+	return highlighted.String(), matches
 }

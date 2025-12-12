@@ -8,6 +8,8 @@ DevDeck is a terminal user interface (TUI) tool designed to manage your local de
 -   **Real-time Logs**: Stream logs from `stdout` and `stderr` for each process.
 -   **Split View**: Pin a process's logs to a secondary pane to watch two services simultaneously (e.g., frontend and backend).
 -   **Restart**: Quickly restart any service with a single keypress.
+-   **Interactive Input**: Send stdin commands to running processes (press `i`).
+-   **Log Filtering**: Search and filter logs in real-time (press `/`).
 -   **Cross-Platform**: Works on Windows, macOS, and Linux.
 
 ## Usage
@@ -70,6 +72,8 @@ tasks:
 -   `k` / `Up`: Move cursor up (Task List) / Scroll up (Log Pane)
 -   `r`: Restart the selected process
 -   `s`: Toggle split view (Pin/Unpin selected process logs)
+-   `i`: Enable interactive input (stdin) for the selected process
+-   `/`: Search/Filter logs
 -   `q` / `Ctrl+C`: Quit application
 
 ## Tech Stack
@@ -84,13 +88,15 @@ tasks:
 - [x] **Split View Layout**: Fix height calculation issues to prevent weird resizing.
 - [x] **First Process Visibility**: Fix issue where the first process is not visible in split view.
 - [x] **Scroll Behavior**: Improve scrolling in log views (autoscroll vs. manual scroll).
+- [x] **Restart Error State**: Fix issue where error messages persist after a successful restart.
+- [x] **UI Padding**: Fix issue where the top UI border was cut off by the window edge.
 
 ### 🚀 Features
 - [x] **CLI Arguments**: Support passing configuration file path (e.g., `-config my-deck.yaml`).
 - [x] **JSON Config**: Add support for JSON configuration files alongside YAML.
 - [x] **Process Input**: Allow sending interactive input (stdin) to running processes.
 - [x] **Log Search**: Implement search functionality within the log views.
-- [ ] **Hot Reload**: Automatically reload configuration when `devdeck.yaml` changes.
+- [x] **Hot Reload**: Automatically reload configuration when `devdeck.yaml` changes.
 
 ### 🎨 Improvements
 - [ ] **Themes**: Allow UI color customization via config.

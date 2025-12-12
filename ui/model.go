@@ -68,22 +68,22 @@ func InitialModel(cfg *config.Config) Model {
 // Init starts all processes and the activity listener loop.
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	for i, proc := range m.processes {
+	for _, proc := range m.processes {
 		if err := proc.Start(); err != nil {
 			// Handle start error
 		}
-		cmds = append(cmds, waitForActivity(i, proc.Output))
+		cmds = append(cmds, waitForActivity(proc.Config.Name, proc.Output))
 	}
 	return tea.Batch(cmds...)
 }
 
-func waitForActivity(index int, output chan string) tea.Cmd {
+func waitForActivity(name string, output chan string) tea.Cmd {
 	return func() tea.Msg {
 		line, ok := <-output
 		if !ok {
 			return nil
 		}
-		return LogMsg{TaskIndex: index, Content: line}
+		return LogMsg{ProcessName: name, Content: line}
 	}
 }
 
@@ -96,6 +96,108 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case ConfigChangedMsg:
+		newCfg := msg
+		var newProcs []*process.Process
+
+		// Map existing processes by name for easy lookup
+		existing := make(map[string]*process.Process)
+		for _, p := range m.processes {
+			existing[p.Config.Name] = p
+		}
+
+		for _, task := range newCfg.Tasks {
+			if proc, ok := existing[task.Name]; ok {
+				// Process exists, check if config changed
+				// Simple comparison: check command, dir, env
+				// We can use reflect.DeepEqual if we import reflect, or manual check.
+				// Manual check for key fields is safer/faster.
+				changed := proc.Config.Command != task.Command ||
+					proc.Config.Directory != task.Directory ||
+					len(proc.Config.Env) != len(task.Env) // Superficial env check
+
+				if !changed {
+					// Check Env deeply
+					for i, e := range proc.Config.Env {
+						if e != task.Env[i] {
+							changed = true
+							break
+						}
+					}
+				}
+
+				if changed {
+					// Config changed, restart with new config
+					_ = proc.Stop()
+					// Create new process instance to ensure clean state
+					newProc := process.NewProcess(task)
+					_ = newProc.Start()
+					newProcs = append(newProcs, newProc)
+					// We need to re-hook the activity listener?
+					// Yes, Init() called Start() and waitForActivity.
+					// We need to spawn waitForActivity for the new process.
+					cmds = append(cmds, waitForActivity(newProc.Config.Name, newProc.Output))
+				} else {
+					// Keep existing process
+					newProcs = append(newProcs, proc)
+					// We need to ensure the index in waitForActivity matches?
+					// waitForActivity captures 'index'. If index changes (reorder), LogMsg will have old index.
+					// Fix: LogMsg should probably identify by Name, or we just accept that reordering might break log routing temporarily?
+					// Actually, waitForActivity is a goroutine. If we reorder, index 0 might become index 1.
+					// The existing goroutine for that process will send LogMsg{TaskIndex: 0}.
+					// But if we moved it to index 1, m.processes[0] is now something else.
+					// So LogMsg will append logs to the WRONG process!
+					// CRITICAL ISSUE.
+
+					// To fix hot reload reordering, LogMsg should use a pointer to the process or Name?
+					// Using pointer is unsafe in tea.Msg? No, it's fine.
+					// Or just use Name.
+				}
+			} else {
+				// New process
+				newProc := process.NewProcess(task)
+				if err := newProc.Start(); err == nil {
+					newProcs = append(newProcs, newProc)
+					cmds = append(cmds, waitForActivity(newProc.Config.Name, newProc.Output))
+				}
+			}
+		}
+
+		// Stop processes that are removed (in existing but not in newProcs)
+		// Wait, newProcs contains the new list.
+		// We iterated newCfg.Tasks.
+		// Any process in 'existing' that was NOT reused is effectively removed?
+		// No, we reused instances. If we reused, it's in newProcs.
+		// If we created new, the old one is abandoned. We must stop it.
+
+		// Let's track used names
+		usedNames := make(map[string]bool)
+		for _, p := range newProcs {
+			usedNames[p.Config.Name] = true
+		}
+
+		for name, p := range existing {
+			if !usedNames[name] {
+				_ = p.Stop()
+			}
+		}
+
+		m.processes = newProcs
+		// Adjust cursor if out of bounds
+		if m.cursor >= len(m.processes) {
+			m.cursor = len(m.processes) - 1
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+		}
+
+		// Re-render viewport
+		if len(m.processes) > 0 {
+			m.viewport.SetContent(m.processes[m.cursor].LogBuffer)
+		} else {
+			m.viewport.SetContent("")
+		}
+
 	case tea.WindowSizeMsg:
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width/2, msg.Height-6)
@@ -267,10 +369,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case LogMsg:
-		proc := m.processes[msg.TaskIndex]
+		// Find process by name
+		var proc *process.Process
+		var index int = -1
+		for i, p := range m.processes {
+			if p.Config.Name == msg.ProcessName {
+				proc = p
+				index = i
+				break
+			}
+		}
+
+		if proc == nil {
+			// Process might have been removed during hot reload
+			return m, nil
+		}
+
 		proc.LogBuffer += msg.Content + "\n"
 
-		if msg.TaskIndex == m.cursor {
+		if index == m.cursor {
 			atBottom := m.viewport.AtBottom()
 			// Apply filter if search query exists
 			content := filterLogs(proc.LogBuffer, m.searchQuery)
@@ -280,7 +397,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if msg.TaskIndex == m.pinnedIndex {
+		if index == m.pinnedIndex {
 			atBottom := m.secondaryViewport.AtBottom()
 			// Pinned view always shows full logs (design choice for now)
 			m.secondaryViewport.SetContent(proc.LogBuffer)
@@ -289,7 +406,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		cmds = append(cmds, waitForActivity(msg.TaskIndex, proc.Output))
+		cmds = append(cmds, waitForActivity(msg.ProcessName, proc.Output))
 	}
 
 	if m.focusedPane == FocusLog {

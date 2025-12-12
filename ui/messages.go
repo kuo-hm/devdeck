@@ -1,11 +1,17 @@
 package ui
 
+import (
+	"github.com/kuo-hm/devdeck/config"
+)
+
 type LogMsg struct {
-	TaskIndex int
-	Content   string
+	ProcessName string
+	Content     string
 }
 
 type ProcessFinishedMsg struct {
-	TaskIndex int
-	Err       error
+	ProcessName string
+	Err         error
 }
+
+type ConfigChangedMsg *config.Config

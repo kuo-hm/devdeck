@@ -149,6 +149,7 @@ func (m Model) View() string {
 
 		pinnedView := lipgloss.NewStyle().
 			Width(m.secondaryViewport.Width).
+			Height(m.secondaryViewport.Height+2).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(secondaryBorderColor).
 			Padding(0, 0). // Padding inside border handled by content/title structure?
@@ -161,7 +162,7 @@ func (m Model) View() string {
 
 		currentView := lipgloss.NewStyle().
 			Width(m.viewport.Width).
-			// Height(m.viewport.Height).
+			Height(m.viewport.Height+1).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(logBorderColor).
 			Padding(0, 1).
